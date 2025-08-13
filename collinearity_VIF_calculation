@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # collinearity：VIF on Jupyter Lab 
+###
+# Auther: JC
+# Cambridge
+###
 
 import os
 import numpy as np
