@@ -11,5 +11,4 @@ This repository contains code primarily developed in Python and R. It includes i
 8.	Time-dependent C-statistics models
 9.	COllinearity_VIF_assessment
 
-The codebase supports the full analysis pipeline from image processing to advanced statistical modeling.
 
