@@ -9,6 +9,6 @@ This repository contains code primarily developed in Python and R. It includes i
 6.	Principal Component Analysis and eigen-feature modeling
 7.	Likelihood ratio test models
 8.	Time-dependent C-statistics models
-9.	COllinearity_VIF_assessment
+9.	Collinearity_VIF_assessment
 
 
