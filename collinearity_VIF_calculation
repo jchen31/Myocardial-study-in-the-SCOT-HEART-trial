@@ -81,7 +81,7 @@ def run_collinearity_check(
     df = pd.read_csv(csv_path)
     missing = [c for c in vars_to_check if c not in df.columns]
     if missing:
-        raise ValueError(f"下列变量不在 CSV 中：{missing}")
+        raise ValueError(f"these varibales are not in the CSV file：{missing}")
 
     num_vars = [v for v in vars_to_check if v not in categorical_vars]
 
@@ -95,7 +95,7 @@ def run_collinearity_check(
         if compute_spearman:
             spearman_corr = work_df[num_vars].corr(method="spearman")
 
-    # One-hot（drop_first 避免虚拟变量陷阱）
+    # One-hot（drop_first）
     X = pd.get_dummies(work_df[vars_to_check], columns=categorical_vars, drop_first=True)
 
     # VIF
