@@ -1,0 +1,137 @@
+#!/usr/bin/env python
+# collinearity：VIF on Jupyter Lab 
+
+import os
+import numpy as np
+import pandas as pd
+from itertools import combinations
+
+# need: pip install statsmodels
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+def simple_impute(df, numeric_cols, cat_cols, strategy="none"):
+    if strategy == "none":
+        return df
+    df = df.copy()
+    if strategy in ("median","mean"):
+        for c in numeric_cols:
+            val = df[c].median() if strategy == "median" else df[c].mean()
+            df[c] = df[c].fillna(val)
+        for c in cat_cols:
+            mode = df[c].mode(dropna=True)
+            fillv = mode.iloc[0] if not mode.empty else "missing"
+            df[c] = df[c].fillna(fillv)
+    elif strategy == "most_frequent":
+        for c in numeric_cols + cat_cols:
+            mode = df[c].mode(dropna=True)
+            fillv = mode.iloc[0] if not mode.empty else (0 if c in numeric_cols else "missing")
+            df[c] = df[c].fillna(fillv)
+    return df
+
+def compute_vif(X_df):
+    X = np.asarray(X_df.values, dtype=float)
+    keep_mask = X.std(axis=0) > 0
+    dropped = list(X_df.columns[~keep_mask])
+    X = X[:, keep_mask]
+    cols = list(np.array(X_df.columns)[keep_mask])
+
+    vifs = []
+    for i in range(X.shape[1]):
+        v = variance_inflation_factor(X, i)
+        vifs.append((cols[i], v))
+    vif_df = pd.DataFrame(vifs, columns=["feature","VIF"]).sort_values("VIF", ascending=False)
+    return vif_df, dropped
+
+def condition_number(X_df):
+    
+    X = np.asarray(X_df.values, dtype=float)
+    col_std = X.std(axis=0)
+    nonzero = col_std > 0
+    X = X[:, nonzero]
+    col_std = col_std[nonzero]
+    if X.shape[1] == 0:
+        return np.nan, np.array([])
+
+    Xz = (X - X.mean(axis=0)) / col_std
+    try:
+        s = np.linalg.svd(Xz, compute_uv=False)
+        kappa = (s.max() / s.min()) if s.min() > 0 else np.inf
+    except np.linalg.LinAlgError:
+        kappa, s = np.inf, np.array([])
+    return kappa, s
+
+def run_collinearity_check(
+    csv_path,
+    vars_to_check,
+    categorical_vars=None,
+    impute="none",
+    corr_threshold=0.8,
+    vif_threshold=5.0,
+    compute_spearman=True,
+    out_prefix="colldiag",
+    save_files=True
+):
+    if categorical_vars is None:
+        categorical_vars = []
+
+    df = pd.read_csv(csv_path)
+    missing = [c for c in vars_to_check if c not in df.columns]
+    if missing:
+        raise ValueError(f"下列变量不在 CSV 中：{missing}")
+
+    num_vars = [v for v in vars_to_check if v not in categorical_vars]
+
+    work_df = df[vars_to_check].copy()
+    work_df = simple_impute(work_df, numeric_cols=num_vars, cat_cols=categorical_vars, strategy=impute)
+
+    # variables 
+    pearson_corr, spearman_corr = None, None
+    if len(num_vars) >= 2:
+        pearson_corr = work_df[num_vars].corr(method="pearson")
+        if compute_spearman:
+            spearman_corr = work_df[num_vars].corr(method="spearman")
+
+    # One-hot（drop_first 避免虚拟变量陷阱）
+    X = pd.get_dummies(work_df[vars_to_check], columns=categorical_vars, drop_first=True)
+
+    # VIF
+    vif_df, dropped_constant = compute_vif(X)
+
+    # 
+    kappa, svals = condition_number(X)
+
+    # high-correlated
+    high_pairs = []
+    if pearson_corr is not None:
+        for a, b in combinations(pearson_corr.columns, 2):
+            r = pearson_corr.loc[a, b]
+            if pd.notnull(r) and abs(r) >= corr_threshold:
+                high_pairs.append(("Pearson", a, b, float(r)))
+
+    if spearman_corr is not None:
+        for a, b in combinations(spearman_corr.columns, 2):
+            r = spearman_corr.loc[a, b]
+            if pd.notnull(r) and abs(r) >= corr_threshold:
+                high_pairs.append(("Spearman", a, b, float(r)))
+
+    # reserve results
+    if save_files:
+        os.makedirs(os.path.dirname(out_prefix) or ".", exist_ok=True)
+        vif_path = f"{out_prefix}_vif.csv"
+        vif_df.to_csv(vif_path, index=False)
+        if pearson_corr is not None:
+            pearson_corr.to_csv(f"{out_prefix}_corr_pearson.csv")
+        if spearman_corr is not None:
+            spearman_corr.to_csv(f"{out_prefix}_corr_spearman.csv")
+
+    results = {
+        "vif_df": vif_df,
+        "pearson_corr": pearson_corr,
+        "spearman_corr": spearman_corr,
+        "high_pairs": high_pairs,
+        "dropped_constant": dropped_constant,
+        "condition_number": kappa,
+        "X_matrix": X, 
+    }
+    return results
+
